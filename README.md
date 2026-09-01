@@ -13,18 +13,6 @@ right 96.7 % of the time.
 
 ---
 
-## Why
-
-Most AI coding traffic is simple — completions, small edits, "what does this
-function do". Sending all of it to a frontier model is expensive. Sending all of
-it to a small local model gives bad answers on the hard questions.
-
-This picks per request. Your editor talks to one endpoint with one key; the
-gateway decides where the request actually goes, records what it cost, and blocks
-API keys and tokens before they reach a third party.
-
----
-
 ## Quick start
 
 ```bash
@@ -88,11 +76,15 @@ Already running your own Prometheus and Grafana? Delete those two services from
 
 Base URL `http://localhost:4000/v1`, your key, and one of these models:
 
-| Use | Model | Why |
-|---|---|---|
-| Chat, edits | `auto` | the router picks the tier |
-| Autocomplete | `fast-local` | must be fast; skip the classifier |
-| Agents (Claude Code, Cline) | `frontier-mid` | local models can't call tools reliably |
+| Use | Model | Backend | Why |
+|---|---|---|---|
+| Chat, edits | `auto` | classifier picks a tier | most traffic stays local |
+| Autocomplete | `fast-local` | Ollama on your host | must be fast; skips the classifier |
+| Agents | `frontier-mid` | Sonnet | local models can't call tools reliably |
+
+`frontier-fast` and `frontier` map to Haiku and Opus if you want them directly.
+Applications use these aliases, never model names, so swapping a model is one
+line in `config/litellm-config.yaml`.
 
 A ready [Continue](https://continue.dev) config is in
 `clients/continue-config.example.yaml`. Aider works with `auto` including local
@@ -100,21 +92,6 @@ models, because it applies text diffs instead of calling tools.
 
 Claude Code uses the Anthropic API shape — point `ANTHROPIC_BASE_URL` at
 `http://localhost:4000` and set `ANTHROPIC_MODEL=frontier-mid`.
-
----
-
-## Models
-
-Applications use aliases, never model names, so swapping a model is a one-line
-config change:
-
-| Alias | Backend |
-|---|---|
-| `auto` | classifier picks one of the tiers below |
-| `fast-local`, `code-local` | Ollama on your host |
-| `frontier-fast` / `frontier-mid` / `frontier` | Haiku / Sonnet / Opus |
-
-Edit `config/litellm-config.yaml` to point them wherever you like.
 
 ---
 
@@ -127,8 +104,8 @@ sh tests/test-guardrails.sh     # guardrail regression suite (~1s, free)
 sh evals/run-classifier-eval.sh # classifier accuracy (free, runs locally)
 ```
 
-Budget alerts go to ntfy and optionally Discord. Alerts also fire when a
-deployment silently falls back to another model.
+Budget alerts go to ntfy. Alerts also fire when a deployment silently falls
+back to another model.
 
 ---
 
@@ -148,13 +125,9 @@ internal document or a description of non-public architecture goes through.
 
 ---
 
-## Notes
-
 [docs/NOTES.md](docs/NOTES.md) has the measurements behind the numbers above,
 the Ollama tuning that matters, and a list of LiteLLM features that look
-configured but silently do nothing — with the workarounds this stack uses. Worth
-reading before you change the routing config.
+configured but silently do nothing. Worth reading before you change the routing
+config.
 
-## License
-
-MIT — see [LICENSE](LICENSE).
+MIT licensed — see [LICENSE](LICENSE).
