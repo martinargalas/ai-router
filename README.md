@@ -1,26 +1,43 @@
 # ai-router
 
+## The problem
+
+Your team writes code with AI help. Three things follow, and all three get worse
+as more people join:
+
+- **The bill grows and nobody can explain it.** One invoice arrives at the end
+  of the month. You cannot see who spent it, on what, or whether any of it was
+  necessary.
+- **Everything goes to the most expensive model.** "What does this function do"
+  costs the same as designing a distributed system, because the editor only
+  knows about one model.
+- **Your code leaves the building.** Every prompt goes to a third party. Nobody
+  keeps a record, and sooner or later somebody pastes in a file with an API key
+  in it.
+
+Nothing in your editor solves this, because your editor talks to one provider
+and stops there.
+
+## What this is
+
+A gateway that sits between your editors and the AI providers.
+
 **Use a small AI model running on your own machine for the easy questions, and
 pay for Claude only when the question is actually hard.**
 
-You point your editor at one address. Behind it, this decides per request
-whether a local model can handle it or whether it needs to go to Anthropic.
-It also keeps track of what each developer spends, and blocks API keys and
-passwords from being sent to a third party by accident.
+You point your editor at one address. Behind it:
+
+- **It decides where each request goes** — your machine or Anthropic. You never
+  switch models by hand.
+- **Each developer gets a monthly budget** that actually stops working when it
+  runs out.
+- **Dashboards** show what was spent, on what, and by whom.
+- **A safety net** refuses to send anything containing an AWS key, a GitHub
+  token or a private key.
+- **Everything that left your network is recorded** — who asked, when, which
+  model answered, what it cost.
 
 On the setup it was built on, this cut the AI bill by 93 %.
-
----
-
-## What you get
-
-- **One endpoint and one key** for your editor. You don't switch models by hand.
-- **A monthly budget per developer** that actually stops working when it runs out.
-- **Dashboards** showing what was spent, on what, and by whom.
-- **A safety net** that refuses to send a request containing an AWS key, a
-  GitHub token or a private key.
-- **A record of every request that left your network** — who made it, when,
-  which model answered, what it cost.
 
 ---
 
