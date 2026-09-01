@@ -8,10 +8,11 @@
 | Claude Code | `/v1/messages` | `frontier-mid` | needs tool calling |
 | MCP clients | `/mcp` | — | the gateway proxies and logs tool calls |
 
-## Addresses
+## Address
 
-- `http://llm.lab` — through Traefik, from the LAN
-- `http://localhost:4000` — from the Docker host only
+`http://localhost:4000` — the gateway binds to localhost only. If you want to
+reach it from other machines, put a reverse proxy in front of it; nothing in
+this stack requires one.
 
 ## Keys
 
