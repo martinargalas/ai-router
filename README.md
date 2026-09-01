@@ -125,8 +125,7 @@ sh evals/run-classifier-eval.sh # classifier accuracy (free, runs locally)
 ```
 
 Budget alerts go to ntfy and optionally Discord. Alerts also fire when a
-deployment silently falls back to another model — a downgrade that looks like
-success is worse than an error.
+deployment silently falls back to another model.
 
 ---
 
