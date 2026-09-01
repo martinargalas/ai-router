@@ -51,3 +51,14 @@ ORDER BY s."startTime" DESC;
 
 COMMENT ON VIEW ai_router_blocked_audit IS
   'Rejected requests including the pattern that matched. Not visible in the LiteLLM Guardrails Monitor.';
+
+-- Re-grant after a DROP/CREATE: dropping a view destroys its privileges, so a
+-- re-run of this file silently locks Grafana out. Conditional so the file works
+-- before the role exists.
+DO $$
+BEGIN
+  IF EXISTS (SELECT FROM pg_roles WHERE rolname='grafana_ro') THEN
+    EXECUTE 'GRANT SELECT ON ai_router_blocked_audit TO grafana_ro';
+  END IF;
+END
+$$;
