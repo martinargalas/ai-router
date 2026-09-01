@@ -1,43 +1,99 @@
 # ai-router
 
-Route AI coding requests to a local model when it can handle them, and to Claude
-when it can't. Track what every developer spends. Stop credentials from leaving
-your network.
+**Use a small AI model running on your own machine for the easy questions, and
+pay for Claude only when the question is actually hard.**
 
-A Docker Compose stack built on [LiteLLM](https://litellm.ai) and
-[Ollama](https://ollama.com).
+You point your editor at one address. Behind it, this decides per request
+whether a local model can handle it or whether it needs to go to Anthropic.
+It also keeps track of what each developer spends, and blocks API keys and
+passwords from being sent to a third party by accident.
 
-**On the reference setup it cut cost by 93 % against sending everything to a
-frontier model**, while a locally-run classifier got the local-vs-cloud decision
-right 96.7 % of the time.
+On the setup it was built on, this cut the AI bill by 93 %.
 
 ---
 
-## Quick start
+## What you get
+
+- **One endpoint and one key** for your editor. You don't switch models by hand.
+- **A monthly budget per developer** that actually stops working when it runs out.
+- **Dashboards** showing what was spent, on what, and by whom.
+- **A safety net** that refuses to send a request containing an AWS key, a
+  GitHub token or a private key.
+- **A record of every request that left your network** — who made it, when,
+  which model answered, what it cost.
+
+---
+
+## How it decides
+
+Every request first goes to a small model running on your machine, which reads
+it and answers one question: how hard is this?
+
+| Verdict | Where it goes |
+|---|---|
+| Greeting, factual question, one-line code | your local model |
+| Everyday work — add a retry, write a Dockerfile, fix a test | your local model |
+| Architecture, tricky debugging, non-trivial code | Claude Sonnet |
+| Proofs, open-ended analysis, hard trade-offs | Claude Opus |
+
+Sorting the request costs nothing, because that model runs locally too. In the
+reference measurements it put the request on the correct side of the
+local/paid line 96.7 % of the time.
+
+---
+
+## Before you start
+
+You need three things:
+
+1. **Docker** with Compose. [Install](https://docs.docker.com/get-docker/)
+2. **[Ollama](https://ollama.com)** installed on your machine — this runs the
+   local model. Install it and leave it running.
+3. **An Anthropic API key** from
+   [console.anthropic.com](https://console.anthropic.com) — optional. Without
+   one, everything runs locally and hard questions simply get a weaker answer.
+
+Ports 3000, 4000, 8080 and 9090 must be free. Nothing is exposed outside your
+machine.
+
+---
+
+## Setup
+
+**1. Get the code and the local model**
 
 ```bash
 git clone https://github.com/martinargalas/ai-router && cd ai-router
+ollama pull qwen2.5-coder:7b
+```
+
+**2. Create your settings file**
+
+```bash
 cp .env.example .env
 ```
 
-Fill in `.env` — the file explains each value and how to generate it. Minimum:
-`AI_ROUTER_DIR`, `POSTGRES_PASSWORD`, `LITELLM_MASTER_KEY`, `LITELLM_SALT_KEY`,
-`REDIS_PASSWORD`. `ANTHROPIC_API_KEY` is optional; without it everything runs
-locally.
+Open `.env` and fill it in. Every line explains what it is and gives you the
+command to generate it — they are mostly random passwords. The one that
+matters: `AI_ROUTER_DIR` must be the full path to the folder you just cloned.
 
-Ports 3000, 4000, 8080 and 9090 must be free — all bound to localhost.
+**3. Start it**
 
 ```bash
-ollama pull qwen2.5-coder:7b
 docker compose --env-file .env up -d
+```
 
-# audit views and eval tables
+Give it a minute on first run — it downloads a few images.
+
+**4. Prepare the reporting tables**
+
+```bash
 for f in sql/*-view.sql sql/eval-tables.sql; do
   docker exec -i ai-router-db psql -U litellm -d litellm < "$f"
 done
 ```
 
-Create a key for yourself:
+**5. Make yourself a key**
 
 ```bash
 curl -s localhost:4000/key/generate \
@@ -48,14 +104,14 @@ curl -s localhost:4000/key/generate \
        "max_budget":10,"budget_duration":"30d","rpm_limit":120}'
 ```
 
-The response contains a `key` field starting with `sk-`. That is what goes in
-your editor. Do not use `LITELLM_MASTER_KEY` — it is full admin over the
-gateway and can read and delete everyone else's keys.
+The reply contains a `key` field starting with `sk-`. **That** is the key your
+editor uses. It has a $10 monthly limit; change `max_budget` to whatever you
+like.
 
-### Dashboards
+Do not put `LITELLM_MASTER_KEY` in your editor. It is the administrator key —
+it can read and delete everyone else's keys.
 
-Grafana and Prometheus start with the stack. Two of the dashboards read the
-audit tables, which needs one more role:
+**6. Turn on the dashboards**
 
 ```bash
 PW=$(openssl rand -base64 18 | tr -d '/+=' | head -c 24)
@@ -64,68 +120,85 @@ echo "GRAFANA_RO_PASSWORD=$PW" >> .env
 docker compose --env-file .env up -d ai-router-grafana
 ```
 
-Grafana on <http://localhost:3000> (`admin` / `GRAFANA_ADMIN_PASSWORD`), three
-dashboards already loaded: spend and latency, an audit of everything that left
-the network, and classifier quality.
+Open <http://localhost:3000> and log in as `admin` with the password from
+`GRAFANA_ADMIN_PASSWORD` in your `.env`. Three dashboards are already there:
+spending, what left your network, and how well the sorting works.
 
 ---
 
-## Point your editor at it
+## Connect your editor
 
-Base URL `http://localhost:4000/v1`, your key, and one of these models:
+Wherever your editor asks for an OpenAI-compatible endpoint:
 
-| Use | Model | Backend | Why |
-|---|---|---|---|
-| Chat, edits | `auto` | classifier picks a tier | most traffic stays local |
-| Autocomplete | `fast-local` | Ollama on your host | must be fast; skips the classifier |
-| Agents | `frontier-mid` | Sonnet | local models can't call tools reliably |
+- **Address:** `http://localhost:4000/v1`
+- **Key:** the `sk-...` from step 5
+- **Model:** one of these
 
-`frontier-fast` and `frontier` map to Haiku and Opus if you want them directly.
-Applications use these aliases, never model names, so swapping a model is one
-line in `config/litellm-config.yaml`.
+| What you're doing | Use | Why |
+|---|---|---|
+| Chat, asking about code, edits | `auto` | lets it choose; most of it stays local |
+| Tab completion | `fast-local` | has to be instant, so it skips the sorting step |
+| Agents that edit files on their own | `frontier-mid` | local models can't drive those reliably |
 
-A ready [Continue](https://continue.dev) config is in
-`clients/continue-config.example.yaml`. Aider works with `auto` including local
-models, because it applies text diffs instead of calling tools.
+`fast-local` and `code-local` are the model you pulled with Ollama.
+`frontier-fast`, `frontier-mid` and `frontier` are Claude Haiku, Sonnet and
+Opus. You can repoint any of them in `config/litellm-config.yaml`.
 
-Claude Code uses the Anthropic API shape — point `ANTHROPIC_BASE_URL` at
-`http://localhost:4000` and set `ANTHROPIC_MODEL=frontier-mid`.
+There is a ready-made [Continue](https://continue.dev) config in
+`clients/continue-config.example.yaml` — copy it to `~/.continue/config.yaml`
+and paste your key in.
+
+Using **Claude Code**? It speaks Anthropic's own format rather than OpenAI's,
+so set `ANTHROPIC_BASE_URL=http://localhost:4000` and
+`ANTHROPIC_MODEL=frontier-mid`.
+
+Using **Aider**? Point it at the same address with model `auto` — it is the one
+agent that works with local models.
 
 ---
 
-## Day to day
+## Checking on it
 
 ```bash
-sh reports/weekly-report.sh 7   # what you spent and saved
-sh sql/blocked-report.sh 7      # what the credential guard caught
-sh tests/test-guardrails.sh     # guardrail regression suite (~1s, free)
-sh evals/run-classifier-eval.sh # classifier accuracy (free, runs locally)
+sh reports/weekly-report.sh 7   # what you spent, and what you saved
+sh sql/blocked-report.sh 7      # what the safety net stopped
 ```
 
-Budget alerts go to ntfy. Alerts also fire when a deployment silently falls
-back to another model.
+You also get alerts when a budget is nearly spent, or when the local model dies
+and everything quietly starts going to the paid one. They appear at
+<http://localhost:8080> under the topic `ai-router-budget`.
+
+To get those on your phone instead, the notification service has to be
+reachable from it — put it behind a reverse proxy, or point Alertmanager at a
+hosted one. See `alertmanager/alertmanager.yml`; there is a commented-out
+Discord block in there too.
 
 ---
 
-## What it does not do
+## What it won't do
 
-**The credential guard catches accidents, not leaks.** It matches eight patterns
-— AWS keys, GitHub and Slack tokens, PEM private keys, Anthropic keys,
-`api_key=`, IBAN, national ID. It does not understand sensitive content: an
-internal document or a description of non-public architecture goes through.
+**The safety net catches mistakes, not spies.** It recognises eight kinds of
+credential — AWS keys, GitHub and Slack tokens, private keys, Anthropic keys,
+`api_key=` lines, IBANs, national ID numbers. It does not understand meaning.
+An internal document, a customer name or a description of your unreleased
+architecture goes straight through.
 
-**Nothing marks a source as confidential.** Routing is by complexity only.
+**You cannot mark a project as confidential.** The decision is based only on how
+hard the question is, never on where the code came from.
 
-**Prompt text is never stored.** The audit answers who, when, where and how much
-— not what. That's deliberate.
+**Nobody can read your prompts afterwards, including you.** The record shows
+who asked, when, which model answered and what it cost — never the text. That
+is on purpose.
 
-**No semantic caching, no knowledge base.** Only exact-match caching runs.
+**The local model is not as good as Claude.** That is the whole trade. The
+sorting step exists to keep the hard questions away from it, and it gets that
+right most of the time — not always.
 
 ---
 
-[docs/NOTES.md](docs/NOTES.md) has the measurements behind the numbers above,
-the Ollama tuning that matters, and a list of LiteLLM features that look
-configured but silently do nothing. Worth reading before you change the routing
-config.
+If you plan to change how requests are sorted, read
+[docs/NOTES.md](docs/NOTES.md) first. It has the measurements behind the numbers
+here, the Ollama settings that matter, and a list of LiteLLM features that look
+like they are configured but silently do nothing.
 
 MIT licensed — see [LICENSE](LICENSE).
