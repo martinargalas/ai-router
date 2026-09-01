@@ -41,6 +41,24 @@ On the setup it was built on, this cut the AI bill by 93 %.
 
 ---
 
+## What it looks like
+
+Everything that left your network — who asked, which model answered, what it
+cost — plus what the credential guard stopped:
+
+![Governance and audit dashboard](docs/images/dashboard-governance.png)
+
+And how well the sorting is working, tracked over time so you can tell whether
+changing the local model helped:
+
+![Classifier quality dashboard](docs/images/dashboard-evals.png)
+
+*Both screenshots use generated sample data — a month of traffic from four
+developers — so the dashboards have something to show. Your own numbers will
+differ.*
+
+---
+
 ## How it decides
 
 Every request first goes to a small model running on your machine, which reads
