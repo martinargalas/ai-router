@@ -1,0 +1,343 @@
+{
+  "__inputs": [
+    {
+      "name": "DS_POSTGRES",
+      "label": "ai-router Postgres",
+      "type": "datasource",
+      "pluginId": "grafana-postgresql-datasource",
+      "pluginName": "PostgreSQL"
+    }
+  ],
+  "__requires": [
+    {
+      "type": "grafana",
+      "id": "grafana",
+      "name": "Grafana",
+      "version": "10.0.0"
+    },
+    {
+      "type": "datasource",
+      "id": "grafana-postgresql-datasource",
+      "name": "PostgreSQL",
+      "version": "1.0.0"
+    }
+  ],
+  "title": "ai-router — Evals",
+  "uid": "ai-router-evals",
+  "tags": [
+    "ai-router",
+    "eval",
+    "quality"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "",
+  "time": {
+    "from": "now-30d",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Accuracy over time — overall vs local/cloud boundary",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRES}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 16,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRES}"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "refId": "A",
+          "rawSql": "SELECT ts AS time, 'overall (' || classifier_model || ')' AS metric,\n       round(accuracy*100,1) AS \"accuracy %\"\nFROM ai_router_eval_runs WHERE $__timeFilter(ts) ORDER BY ts"
+        },
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRES}"
+          },
+          "format": "time_series",
+          "rawQuery": true,
+          "refId": "B",
+          "rawSql": "SELECT ts AS time, 'local/cloud boundary (' || classifier_model || ')' AS metric,\n       round(boundary_accuracy*100,1) AS \"accuracy %\"\nFROM ai_router_eval_runs WHERE $__timeFilter(ts) AND boundary_accuracy IS NOT NULL ORDER BY ts"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "custom": {
+            "lineWidth": 2,
+            "pointSize": 8,
+            "showPoints": "always",
+            "spanNulls": true
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Latest — boundary accuracy",
+      "type": "stat",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRES}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRES}"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT round(boundary_accuracy*100,1) AS \"Boundary accuracy %\"\nFROM ai_router_eval_runs ORDER BY id DESC LIMIT 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "yellow",
+                "value": 85
+              },
+              {
+                "color": "green",
+                "value": 92
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "options": {
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "colorMode": "value",
+        "graphMode": "none",
+        "textMode": "auto"
+      }
+    },
+    {
+      "id": 3,
+      "title": "Accuracy by tier (latest run)",
+      "type": "barchart",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRES}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRES}"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT expected AS \"Tier\",\n       round(100.0*sum(CASE WHEN correct THEN 1 ELSE 0 END)/count(*),1) AS \"Accuracy %\"\nFROM ai_router_eval_cases\nWHERE run_id = (SELECT max(id) FROM ai_router_eval_runs)\nGROUP BY 1 ORDER BY 2",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percent",
+          "min": 0,
+          "max": 100,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 70
+              },
+              {
+                "color": "yellow",
+                "value": 85
+              },
+              {
+                "color": "green",
+                "value": 92
+              }
+            ]
+          },
+          "custom": {
+            "gradientMode": "scheme"
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Boundary errors (latest run)",
+      "type": "barchart",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRES}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 8,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRES}"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "WITH latest AS (\n  SELECT boundary_over, boundary_under FROM ai_router_eval_runs ORDER BY id DESC LIMIT 1\n)\nSELECT 'local -> cloud (paid unnecessarily)' AS \"Type\", boundary_over AS \"Count\" FROM latest\nUNION ALL\nSELECT 'cloud -> local (hard question, small model)', boundary_under FROM latest",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 4
+              }
+            ]
+          },
+          "color": {
+            "mode": "thresholds"
+          }
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Confusion matrix (latest run)",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRES}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 16,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRES}"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT expected AS \"Expected\", got AS \"Classified as\", count(*) AS \"Count\"\nFROM ai_router_eval_cases\nWHERE run_id = (SELECT max(id) FROM ai_router_eval_runs)\nGROUP BY 1,2 ORDER BY 1,3 DESC",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Misclassifications (latest run)",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "${DS_POSTGRES}"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 16,
+        "w": 12,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "${DS_POSTGRES}"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT expected AS \"Expected\", got AS \"Got\", left(prompt,70) AS \"Prompt\"\nFROM ai_router_eval_cases\nWHERE run_id = (SELECT max(id) FROM ai_router_eval_runs) AND NOT correct\nORDER BY expected",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}

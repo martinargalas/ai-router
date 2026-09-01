@@ -1,0 +1,24 @@
+# Prometheus scrape job for ai-router.
+#
+# This file is NOT applied automatically — Prometheus normally belongs to a
+# different stack, and this project does not modify other people's containers.
+#
+# Steps:
+#   1. Add the block below to scrape_configs in your prometheus.yml
+#   2. Reload:  curl -X POST http://localhost:9090/-/reload
+#      (requires --web.enable-lifecycle; otherwise restart Prometheus)
+#
+# No authentication is needed: litellm-config.yaml sets
+# require_auth_for_metrics_endpoint: false, and port 4000 is bound to 127.0.0.1
+# in compose. Prometheus reaches the container over the shared Docker network.
+#
+# Note: /metrics answers 307 and redirects to /metrics/. Prometheus follows
+# redirects by default, so no extra configuration is required.
+
+  - job_name: 'ai-router-litellm'
+    scrape_interval: 30s
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['ai-router-litellm:4000']
+        labels:
+          service: 'ai-router'

@@ -1,0 +1,75 @@
+# Alertmanager for ai-router.
+#
+# Receives alerts from Prometheus and forwards them to ntfy and Discord.
+# The Discord webhook URL is read from a file, never stored in this config.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: warning
+  group_by: ['alertname', 'api_key_alias']
+  group_wait: 30s
+  # 30m, not 5m. A shorter interval means every state transition produces its
+  # own message — that is what caused messages roughly every 10 minutes.
+  group_interval: 30m
+  repeat_interval: 12h
+
+  routes:
+    - matchers:
+        - severity = "critical"
+      receiver: critical
+      group_wait: 10s
+      group_interval: 15m
+      repeat_interval: 4h
+
+receivers:
+  # Critical: send resolutions too — "it is fine again" is meaningful for an
+  # exhausted budget or an outage.
+  - name: critical
+    webhook_configs:
+      - url: http://ai-router-ntfy/ai-router-budget
+        send_resolved: true
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/secrets/discord-webhook-url
+        send_resolved: true
+        title: >-
+          {{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}🔴{{ else }}🟠{{ end }}{{ else }}✅{{ end }}
+          ai-router — {{ .CommonLabels.alertname }}{{ if gt (len .Alerts) 1 }} ({{ len .Alerts }}×){{ end }}
+        message: >-
+          {{ range .Alerts -}}
+          **{{ .Annotations.summary }}**
+          {{ if .Annotations.description }}{{ .Annotations.description }}
+          {{ end }}
+          {{ if .Labels.api_key_alias }}Key: `{{ .Labels.api_key_alias }}`  ·  {{ end }}Severity: `{{ .Labels.severity }}`
+          {{ if eq .Status "resolved" }}Resolved at {{ .EndsAt.Format "15:04:05" }}{{ else }}Since {{ .StartsAt.Format "15:04:05" }}{{ end }}
+          {{ end }}
+
+  # Warning: resolutions are NOT sent. "The budget is no longer at 80 %" is
+  # noise, not information, and it doubles the message count.
+  - name: warning
+    webhook_configs:
+      - url: http://ai-router-ntfy/ai-router-budget
+        send_resolved: false
+    discord_configs:
+      - webhook_url_file: /etc/alertmanager/secrets/discord-webhook-url
+        send_resolved: false
+        title: >-
+          {{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}🔴{{ else }}🟠{{ end }}{{ else }}✅{{ end }}
+          ai-router — {{ .CommonLabels.alertname }}{{ if gt (len .Alerts) 1 }} ({{ len .Alerts }}×){{ end }}
+        message: >-
+          {{ range .Alerts -}}
+          **{{ .Annotations.summary }}**
+          {{ if .Annotations.description }}{{ .Annotations.description }}
+          {{ end }}
+          {{ if .Labels.api_key_alias }}Key: `{{ .Labels.api_key_alias }}`  ·  {{ end }}Severity: `{{ .Labels.severity }}`
+          {{ if eq .Status "resolved" }}Resolved at {{ .EndsAt.Format "15:04:05" }}{{ else }}Since {{ .StartsAt.Format "15:04:05" }}{{ end }}
+          {{ end }}
+
+inhibit_rules:
+  # When a budget is fully exhausted, do not also send the 80 % warning.
+  - source_matchers:
+      - alertname = "AiRouterBudgetExhausted"
+    target_matchers:
+      - alertname = "AiRouterBudgetWarning"
+    equal: ['api_key_alias']

@@ -1,0 +1,185 @@
+# Alert rules for ai-router.
+#
+# NOT applied automatically. Prometheus usually belongs to another stack and
+# this project does not modify other people's containers.
+#
+# Steps:
+#   1. Copy this file next to your prometheus.yml
+#   2. Add (or extend) these sections in prometheus.yml:
+#
+#        rule_files:
+#          - /config/ai-router-rules.yml
+#
+#        alerting:
+#          alertmanagers:
+#            - static_configs:
+#                - targets: ['ai-router-alertmanager:9093']
+#
+#   3. Reload: curl -X POST http://localhost:9090/-/reload
+#
+# Prometheus reaches Alertmanager over the shared monitoring network.
+
+groups:
+  - name: ai-router-budgets
+    interval: 30s
+    rules:
+      - alert: AiRouterBudgetWarning
+        # Band 5-25 %. Upper bound <= so exactly 20 % triggers, lower > 0.05
+        # so the band does NOT overlap Exhausted — otherwise, once Exhausted
+        # resolves, Warning surfaces about the same thing and you get a third message.
+        expr: |
+          (
+            litellm_remaining_api_key_budget_metric
+              / on(api_key_alias) group_left
+            litellm_api_key_max_budget_metric <= 0.25
+          )
+          > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-router
+        annotations:
+          summary: "Klic {{ $labels.api_key_alias }} vycerpal 80 % rozpoctu"
+          description: "{{ $value | humanizePercentage }} of budget remaining."
+
+      - alert: AiRouterBudgetExhausted
+        # NOT "remaining <= 0". LiteLLM rejects the request BEFORE zero is
+        # reached, so the remainder stays positive. Verified empirically.
+        #
+        # But NOT just "recent rejection" either — that resolves after 10 min
+        # while the budget is still exhausted, and the alert starts flapping.
+        # Hence state (<= 5 % left) OR event (a recent rejection).
+        expr: |
+          (
+            litellm_remaining_api_key_budget_metric
+              / on(api_key_alias) group_left
+            litellm_api_key_max_budget_metric <= 0.05
+          )
+          or
+          (
+            sum by (api_key_alias) (
+              increase(litellm_proxy_failed_requests_metric_total{exception_class="BudgetExceededError"}[15m])
+            ) > 0
+          )
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-router
+        annotations:
+          summary: "Klic {{ $labels.api_key_alias }} vycerpal rozpocet"
+          description: "Cloud models are rejected for this key. Local models keep serving."
+
+  - name: ai-router-availability
+    interval: 30s
+    rules:
+      - alert: AiRouterGatewayDown
+        expr: up{job="ai-router-litellm"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: ai-router
+        annotations:
+          summary: "ai-router gateway is not responding"
+
+      - alert: AiRouterOllamaUnreachable
+        # The local model stopped answering -> everything escalates to the cloud
+        # and quietly spends money. This is the silent leak that matters.
+        expr: |
+          sum(rate(litellm_llm_api_failed_requests_metric_total{api_provider="ollama_chat"}[5m])) > 0
+        for: 3m
+        labels:
+          severity: critical
+          service: ai-router
+        annotations:
+          summary: "Ollama is failing — risk of silently switching to paid models"
+
+      - alert: AiRouterHighErrorRate
+        expr: |
+          sum(rate(litellm_proxy_failed_requests_metric_total[5m]))
+            /
+          sum(rate(litellm_proxy_total_requests_metric_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-router
+        annotations:
+          summary: "ai-router error rate above 5 %"
+
+  - name: ai-router-cost
+    interval: 1m
+    rules:
+      - alert: AiRouterDailySpendSpike
+        # Guard against an agent stuck in a loop. Tune the threshold to your budget.
+        expr: sum(increase(litellm_spend_metric_total[24h])) > 5
+        for: 5m
+        labels:
+          severity: critical
+          service: ai-router
+        annotations:
+          summary: "Daily spend above $5"
+          description: "${{ $value | printf \"%.2f\" }} spent in the last 24 h."
+
+      - alert: AiRouterCloudShareHigh
+        # Local-first has broken: more than half of traffic goes to the cloud.
+        expr: |
+          sum(rate(litellm_proxy_total_requests_metric_total{api_provider="anthropic"}[1h]))
+            /
+          sum(rate(litellm_proxy_total_requests_metric_total[1h])) > 0.5
+        for: 15m
+        labels:
+          severity: warning
+          service: ai-router
+        annotations:
+          summary: "More than 50 % of traffic is going to the cloud"
+
+  - name: ai-router-tiche-degradace
+    interval: 30s
+    rules:
+      # Deployment out of rotation (cooldown after repeated failures).
+      # The router skips it and uses a fallback — with NO error in the log.
+      # This is exactly how an escalation to Sonnet silently fell back to a local model.
+      - alert: AiRouterDeploymentCooldown
+        expr: litellm_deployment_state != 0
+        for: 2m
+        labels:
+          severity: warning
+          service: ai-router
+        annotations:
+          summary: "Deployment {{ $labels.litellm_model_name }} is out of rotation"
+          description: "Provider {{ $labels.api_provider }}, state {{ $value }}. Requests are being served by a fallback."
+
+      # Silent degradation: the fallback succeeded, so the user got an answer —
+      # just from a different model than requested. No error anywhere.
+      - alert: AiRouterSilentFallback
+        expr: |
+          sum(increase(litellm_deployment_successful_fallbacks_total[15m])) > 3
+        for: 5m
+        labels:
+          severity: warning
+          service: ai-router
+        annotations:
+          summary: "Frequent silent fallbacks ({{ $value | printf \"%.0f\" }} in 15 min)"
+          description: "Users are getting answers from a different model than requested, without knowing."
+
+  - name: ai-router-governance
+    interval: 30s
+    rules:
+      # A guardrail blocked something. A blocked request never completes, so it
+      # is NOT counted by LiteLLM_DailyGuardrailMetrics or the Guardrails Monitor
+      # page — those only count what passed.
+      # Prometheus is therefore the only place a catch is visible.
+      #
+      # NOTE: HTTPException is not guardrail-specific and may cover other 400s.
+      # 400s. A false alarm here is more acceptable than a missed catch.
+      - alert: AiRouterGuardrailBlock
+        expr: |
+          sum by (api_key_alias) (
+            increase(litellm_proxy_failed_requests_metric_total{exception_class="HTTPException"}[15m])
+          ) > 0
+        for: 1m
+        labels:
+          severity: warning
+          service: ai-router
+        annotations:
+          summary: "Guardrail zablokoval request klice {{ $labels.api_key_alias }}"
+          description: "Most likely a credential detection. Details in the ai-router-litellm container log."

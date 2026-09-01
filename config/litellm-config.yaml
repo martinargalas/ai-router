@@ -1,0 +1,322 @@
+# ai-router — LiteLLM configuration
+#
+# Applications reference the aliases below and NEVER a concrete model name.
+# Swapping a model is a change to this file, not a change to any client.
+
+# WATCH OUT for adaptive thinking. Claude 5 models think by default and thinking
+# tokens count against max_tokens. Measured: with max_tokens: 8 the whole budget
+# went to thinking_blocks, content came back None and finish_reason: length.
+#
+# The max_tokens below apply when the client sends none. A client-supplied value
+# wins, so do not send small max_tokens to cloud models from your app.
+
+model_list:
+  # ---------- local (Ollama on the host, Metal/CUDA) ----------
+  # NOTE: fast-local and code-local point at the SAME 7B model.
+  #
+  # Ollama does not keep two models resident at once — loading the 7B evicts the
+  # 3B even with OLLAMA_MAX_LOADED_MODELS=3 and keep_alive=24h. Measured cost of
+  # a switch: 2174 ms, four times the entire latency budget for autocomplete.
+  #
+  # Measured warm:  3B = TTFT 80-133 ms, 45 tok/s
+  #                 7B = TTFT 159-169 ms, 21 tok/s
+  # Both meet TTFT < 500 ms. Lower throughput is the lesser evil compared to a
+  # two-second stall on every switch. If your host can hold both, split them.
+  - model_name: fast-local
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:7b
+      api_base: os.environ/OLLAMA_BASE_URL
+      timeout: 30
+      stream_timeout: 15
+    model_info:
+      mode: chat
+      # Ollama truncates an oversized prompt SILENTLY instead of erroring.
+      # Without this limit you get a degraded answer and never know.
+      max_input_tokens: 30000
+      # Pseudo-price: local inference is not free. ~$0.30 per 1M tokens covers
+      # electricity plus hardware amortisation. Without it local traffic looks
+      # like zero and the savings numbers become meaningless. Tune to your setup.
+      input_cost_per_token: 0.0000003
+      output_cost_per_token: 0.0000003
+
+  - model_name: code-local
+    litellm_params:
+      model: ollama_chat/qwen2.5-coder:7b
+      api_base: os.environ/OLLAMA_BASE_URL
+      timeout: 120
+    model_info:
+      mode: chat
+      max_input_tokens: 30000
+      input_cost_per_token: 0.0000005
+      output_cost_per_token: 0.0000005
+
+  # ---------- cloud (Anthropic) ----------
+  - model_name: frontier
+    litellm_params:
+      model: anthropic/claude-opus-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 600
+      max_tokens: 8192
+    model_info:
+      mode: chat
+      input_cost_per_token: 0.000005    # $5 / 1M
+      output_cost_per_token: 0.000025   # $25 / 1M
+
+  - model_name: frontier-mid
+    litellm_params:
+      model: anthropic/claude-sonnet-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 600
+      max_tokens: 8192
+    model_info:
+      mode: chat
+      input_cost_per_token: 0.000002    # $2 / 1M
+      output_cost_per_token: 0.00001    # $10 / 1M
+
+  - model_name: frontier-fast
+    litellm_params:
+      model: anthropic/claude-haiku-4-5
+      api_key: os.environ/ANTHROPIC_API_KEY
+      timeout: 300
+      max_tokens: 4096
+    model_info:
+      mode: chat
+      input_cost_per_token: 0.000001    # $1 / 1M
+      output_cost_per_token: 0.000005   # $5 / 1M
+
+
+  # ---------- alias "auto": built-in complexity router ----------
+  #
+  # LiteLLM scores request complexity and picks a tier. return_raw_model_name
+  # exposes the model that actually served the request — without it the response
+  # only echoes the alias and silent substitutions stay invisible.
+  #
+  # The mapping is local-first: SIMPLE and MEDIUM stay on Ollama, only COMPLEX
+  # and above reach the cloud.
+
+  - model_name: auto
+    litellm_params:
+      model: auto_router/complexity_router
+      drop_params: true
+      complexity_router_config:
+        tiers:
+          # Both local tiers on the same model — see the note on fast-local.
+          SIMPLE: fast-local
+          MEDIUM: code-local
+          COMPLEX: frontier-mid
+          REASONING: frontier
+        default_model: fast-local
+        return_raw_model_name: true
+
+        # The heuristic scorer returns 0.0 even for a proof-of-undecidability
+        # prompt, so with the default 0.15/0.35/0.6 boundaries everything lands
+        # in SIMPLE. Measured via /auto_router/test_routing. The LLM classifier
+        # runs on the local model, so it costs pseudo-price, not real money.
+        classifier_type: llm
+        classifier_llm_config:
+          # 7B, not 3B. Measured with evals/run-classifier-eval.sh:
+          #   3B: 70.0 % overall, 93.3 % on the local/cloud boundary, REASONING 1/6
+          #   7B: 90.0 % overall, 96.7 % on the local/cloud boundary, REASONING 5/6
+          # Cost: classification takes 0.69 s instead of ~0.45 s. Acceptable for
+          # "auto"; autocomplete should call fast-local directly anyway.
+          model: code-local
+          timeout_ms: 30000
+          # 'agentic' anchors routine engineering (builds, multi-file edits,
+          # debugging) at MEDIUM so ordinary work does not route to the most
+          # expensive tier. Intended for agent/terminal/coding-assistant traffic.
+          classification_rubric: agentic
+
+
+  # ---------- alias "auto-agentic": for Claude Code and agentic clients ----------
+  # Claude Code sends tool definitions with EVERY request. The local 7B model
+  # ignores tools (verified: stop_reason=end_turn instead of tool_use), so any
+  # local tier would break the agent loop.
+  #
+  # Therefore ALL tiers are cloud. Complexity routing still applies, it just
+  # happens between Claude models:
+  #   Haiku  $1/$5    <- 5x cheaper than Sonnet, 25x cheaper than Opus
+  #   Sonnet $2/$10
+  #   Opus   $5/$25
+  #
+  # The classifier still runs locally, so the decision itself costs nothing.
+  - model_name: auto-agentic
+    litellm_params:
+      model: auto_router/complexity_router
+      drop_params: true
+      max_tokens: 8192
+      complexity_router_config:
+        tiers:
+          SIMPLE: frontier-fast
+          MEDIUM: frontier-fast
+          COMPLEX: frontier-mid
+          REASONING: frontier
+        default_model: frontier-mid
+        return_raw_model_name: true
+        classifier_type: llm
+        classifier_llm_config:
+          model: code-local
+          timeout_ms: 30000
+          classification_rubric: agentic
+
+
+router_settings:
+  routing_strategy: simple-shuffle
+  # If the local model fails, escalate to the cheap cloud tier, not straight
+  # to the most expensive one.
+  fallbacks:
+    - fast-local: ["frontier-fast"]
+    - frontier: ["frontier-mid"]
+    # When the cloud fails (outage, exhausted credit, rate limit), degrade to a
+    # local model instead of returning an error. NOTE: this degradation is
+    # silent — watch the AiRouterSilentFallback alert.
+    - auto: ["fast-local"]
+    # auto-agentic degrades to Sonnet, NOT to a local model — tools would break.
+    - auto-agentic: ["frontier-mid"]
+    - frontier-mid: ["fast-local"]
+    - frontier-fast: ["fast-local"]
+
+  # Size-based escalation.
+  # When a prompt exceeds the local model's context, LiteLLM is supposed to
+  # move it to the cloud instead of erroring. This is the only size heuristic
+  # available natively — richer classification (diff size, conversation depth)
+  # would need a service in front of the gateway.
+
+  # NOTE: context_window_fallbacks is deliberately ineffective here. Ollama
+  # truncates silently instead of raising, so the fallback has nothing to react
+  # to. max_input_tokens in model_info did not pre-empt it either.
+  context_window_fallbacks:
+    - fast-local: ["frontier"]
+
+  # If the cloud refuses content, try the local model (data stays on-prem).
+  content_policy_fallbacks:
+    - frontier: ["fast-local"]
+  allowed_fails: 3
+  cooldown_time: 60
+  num_retries: 2
+
+litellm_settings:
+  drop_params: true
+
+  # Exact-match cache. Keyed on the exact prompt hash, so it CANNOT return an
+  # answer to a different question — zero risk.
+  #
+  # Semantic cache (type: redis-semantic) is deliberately OFF. Caching in LiteLLM
+  # is global and cannot be scoped per model, and on code review semantic
+  # similarity would happily return an answer about different code.
+  cache: true
+  cache_params:
+    type: redis
+    # Short TTL: an answer about code that has since changed is a wrong answer.
+    ttl: 3600
+    namespace: ai-router
+
+  # Verified working in LiteLLM 1.98.0: /metrics exposes 56 distinct metrics
+  # labelled by user, team, key alias and model. In some builds this has been an
+  # enterprise feature — if /metrics comes back empty, read spend from Postgres
+  # with postgres_exporter instead.
+  callbacks: ["prometheus"]
+  set_verbose: false
+  # /metrics without auth. The default is True and only admits the master key,
+  # which we do not want sitting in prometheus.yml (it is full admin over the
+  # gateway). Compensated by binding port 4000 to 127.0.0.1 in compose, so
+  # /metrics is reachable from Docker networks and this host, not the LAN.
+  # Metrics carry no secrets (hashed_api_key is a hash) but do reveal user names
+  # and usage patterns.
+  require_auth_for_metrics_endpoint: false
+
+general_settings:
+  master_key: os.environ/LITELLM_MASTER_KEY
+
+  # --- retention policy ---
+  # Prompts are NOT stored in spend logs. Set explicitly even though it is the
+  # default: stored prompts would create a second copy of sensitive data in
+  # Postgres. The audit therefore answers WHO / WHEN / WHERE / HOW MUCH, but not
+  # WHAT. A deliberate trade in favour of privacy.
+  store_prompts_in_spend_logs: false
+
+  # Spend logs are pruned after 90 days. Shorter keeps less user data, longer
+  # gives better FinOps history. Cleanup runs once a day.
+  maximum_spend_logs_retention_period: "90d"
+  maximum_spend_logs_retention_interval: "1d"
+
+  # Budget alerts -> generic webhook -> ntfy.
+  #
+  # WARNING: this did not fire in LiteLLM 1.98.0. budget_alerts() is defined but
+  # never called anywhere in the package, and soft_budget does not persist on
+  # keys or users. Real alerting is done through Prometheus + Alertmanager (see
+  # prometheus/ai-router-rules.yml). Left configured for when upstream fixes it.
+  alerting: ["webhook"]
+  alert_types: ["budget_alerts"]
+  database_url: os.environ/DATABASE_URL
+  # POZOR: background health checks posilaji REALNY request na kazdy model
+  # v katalogu, tedy i na claude-opus-5. Pri intervalu 300 s to delalo
+  # ~$6/mesic za nic. Vypnuto.
+  #
+  # Zdravi se hlida jinak:
+  #   - liveness kontejneru: /health/liveliness (v compose healthchecku)
+  #   - vypadky modelu: fallbacks + Prometheus alert na error rate
+  #   - rucne na vyzadani: POST /health (nikoli na pozadi)
+  background_health_checks: false
+
+# ---------------------------------------------------------------------------
+# Governance: credential detection before the request leaves
+# ---------------------------------------------------------------------------
+# The scenario this solves: a file contains an API key, you ask about it through
+# "auto", the classifier rates it COMPLEX and ships the whole content — key
+# included — to the cloud.
+#
+# The guardrail runs pre_call and applies to local models too. That is
+# deliberate: request metadata is persisted either way.
+#
+# BLOCK, not MASK. For credentials you do not want silent redaction — you want
+# to know it happened and fix the prompt.
+guardrails:
+  - guardrail_name: "secret-scan"
+    litellm_params:
+      guardrail: litellm_content_filter
+      mode: pre_call
+      default_on: true
+      severity_threshold: low
+      patterns:
+        # --- built-in patterns ---
+        - pattern_type: prebuilt
+          pattern_name: aws_access_key
+          action: BLOCK
+        # aws_secret_key is DELIBERATELY OMITTED. It matches 40 base64-alphabet
+        # characters, which is exactly the shape of a git commit hash — verified,
+        # it blocked "Commit 4f2779ed528c... broke the build". A pattern that
+        # blocks ordinary developer work is worse than no pattern.
+        # aws_access_key (AKIA prefix) is unambiguous and leaked secret keys
+        # usually travel next to their access key id anyway.
+        - pattern_type: prebuilt
+          pattern_name: github_token
+          action: BLOCK
+        - pattern_type: prebuilt
+          pattern_name: slack_token
+          action: BLOCK
+        - pattern_type: prebuilt
+          pattern_name: generic_api_key
+          action: BLOCK
+
+        # --- custom patterns ---
+        - pattern_type: regex
+          name: private_key_block
+          pattern: "-----BEGIN (?:RSA |EC |DSA |OPENSSH |PGP )?PRIVATE KEY-----"
+          action: BLOCK
+        - pattern_type: regex
+          name: anthropic_api_key
+          pattern: "sk-ant-[A-Za-z0-9_\\-]{20,}"
+          action: BLOCK
+        - pattern_type: regex
+          name: iban
+          pattern: "\\b[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}\\b"
+          action: BLOCK
+        - pattern_type: regex
+          name: rodne_cislo
+          pattern: "\\b[0-9]{6}/[0-9]{3,4}\\b"
+          action: BLOCK
+
+# Email addresses and IP addresses are deliberately NOT blocked. They appear
+# legitimately in developer traffic (logs, configs, fixtures) and blocking them
+# would do more harm than good. For real PII detection, LiteLLM ships a Presidio
+# guardrail — not deployed here.

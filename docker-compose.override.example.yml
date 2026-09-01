@@ -1,0 +1,27 @@
+# Local integration overrides.
+#
+# Copy to docker-compose.override.yml (gitignored) — Compose loads it
+# automatically on top of docker-compose.yml.
+#
+# Use this when you already run Traefik, Prometheus or Grafana in another stack
+# and want ai-router to join their networks instead of creating its own.
+
+services:
+  ai-router-litellm:
+    # Only needed if your Traefik uses different entrypoints than web/websecure.
+    labels:
+      traefik.http.routers.ai-router.rule: "Host(`llm.example.lan`)"
+
+  ai-router-db:
+    networks:
+      - default
+      - monitoring
+
+networks:
+  # Replace the stack-owned networks with your existing ones.
+  traefik-net:
+    external: true
+    name: traefik-net          # <- the network your Traefik is on
+  monitoring:
+    external: true
+    name: monitoring_default   # <- the network your Prometheus is on

@@ -1,0 +1,49 @@
+# Continue.dev — pointing at the ai-router gateway
+#
+# Location after installing VS Code + the Continue extension:
+#   ~/.continue/config.yaml
+#
+# NOTE: Continue changed its config schema between versions (previously config.json,
+# now config.yaml). Check the keys against your version; the principle holds —
+# one entry per role, different model.
+
+name: ai-router
+version: 0.0.1
+schema: v1
+
+models:
+  # --- Chat, edit, apply ---
+  # The "auto" alias lets the classifier decide: simple questions stay
+  # local, architecture goes to Sonnet, hard reasoning to Opus.
+  - name: router
+    provider: openai
+    model: auto
+    apiBase: http://llm.lab/v1
+    apiKey: YOUR_VIRTUAL_KEY_HERE
+    roles:
+      - chat
+      - edit
+      - apply
+
+  # --- Autocomplete (Tab) ---
+  # DELIBERATELY not "auto". Autocomplete fires on every keystroke and the
+  # classifier would add ~0.69 s. The budget is 500 ms.
+  # fast-local = qwen2.5-coder:7b, measured TTFT 159-169 ms.
+  - name: rychly-lokalni
+    provider: openai
+    model: fast-local
+    apiBase: http://llm.lab/v1
+    apiKey: YOUR_VIRTUAL_KEY_HERE
+    roles:
+      - autocomplete
+
+  # --- Agent mode ---
+  # The local model does not do tool calling (verified: returns stop_reason
+  # end_turn instead of tool_use), so this is pinned to the cloud.
+  - name: agent
+    provider: openai
+    model: frontier-mid
+    apiBase: http://llm.lab/v1
+    apiKey: YOUR_VIRTUAL_KEY_HERE
+    roles:
+      - chat

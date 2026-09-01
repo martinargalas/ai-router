@@ -1,0 +1,125 @@
+{
+  "description": "Golden set for the complexity classifier eval. 'expected' is the tier the classifier should pick.",
+  "cases": [
+    {
+      "expected": "SIMPLE",
+      "prompt": "ahoj"
+    },
+    {
+      "expected": "SIMPLE",
+      "prompt": "What is the capital of France?"
+    },
+    {
+      "expected": "SIMPLE",
+      "prompt": "Jak se v Pythonu otoci retezec?"
+    },
+    {
+      "expected": "SIMPLE",
+      "prompt": "Write a one-liner to reverse a string in Python."
+    },
+    {
+      "expected": "SIMPLE",
+      "prompt": "What does the HTTP status code 404 mean?"
+    },
+    {
+      "expected": "SIMPLE",
+      "prompt": "Oprav preklep v teto vete: Dobri den."
+    },
+    {
+      "expected": "SIMPLE",
+      "prompt": "Convert 25 celsius to fahrenheit."
+    },
+    {
+      "expected": "SIMPLE",
+      "prompt": "What is the difference between == and === in JavaScript?"
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Add a retry with exponential backoff to this HTTP client and update the tests."
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Napis Dockerfile pro Python aplikaci s multi-stage buildem."
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Refactor this function to use async/await instead of callbacks."
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Why does my pytest fixture run twice? I use scope='module'."
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Add pagination to this REST endpoint using cursor-based pagination."
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Write a GitHub Actions workflow that runs tests on push and caches pip."
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Explain what a mutex is and when to use it over a semaphore."
+    },
+    {
+      "expected": "MEDIUM",
+      "prompt": "Migrate this SQL query from MySQL syntax to PostgreSQL."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Design a multi-region event-driven payments architecture with exactly-once delivery; justify Kafka vs Pulsar."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Navrhni schema databaze pro multi-tenant SaaS s row-level security a auditem zmen."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Our service has a memory leak under load. Heap grows 200MB/hour, GC runs but does not reclaim. Walk me through diagnosis."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Implement a lock-free ring buffer in Rust with correct memory ordering."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Design a migration from a monolith to services without downtime, including data consistency strategy."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Our Kubernetes pods are being OOMKilled but metrics show low usage. Diagnose systematically."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Write a rate limiter that works correctly across multiple replicas with clock skew."
+    },
+    {
+      "expected": "COMPLEX",
+      "prompt": "Refaktoruj tuto legacy tridu na hexagonalni architekturu a vysvetli hranice portu a adapteru."
+    },
+    {
+      "expected": "REASONING",
+      "prompt": "Prove that the halting problem is undecidable and explain how that constrains static analysis."
+    },
+    {
+      "expected": "REASONING",
+      "prompt": "Is eventual consistency acceptable for a banking ledger? Argue both sides and conclude."
+    },
+    {
+      "expected": "REASONING",
+      "prompt": "Analyze the tradeoffs between CRDTs and operational transformation for collaborative editing."
+    },
+    {
+      "expected": "REASONING",
+      "prompt": "Given CAP, what exactly do we give up when choosing a leaderless quorum system? Reason step by step."
+    },
+    {
+      "expected": "REASONING",
+      "prompt": "Derive the expected number of comparisons for quicksort on random input."
+    },
+    {
+      "expected": "REASONING",
+      "prompt": "Should we adopt microservices? Reason through the organizational and technical preconditions."
+    }
+  ]
+}

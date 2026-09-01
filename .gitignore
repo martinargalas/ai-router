@@ -1,0 +1,22 @@
+.env
+*.local
+.DS_Store
+
+# Tajemstvi - webhook URL apod. NIKDY necommitovat.
+secrets/*
+!secrets/README.md
+
+# Lokalni varianty konfiguraci s realnymi klici
+*.local.yaml
+*.local.yml
+clients/continue-config.local.yaml
+
+# Vysledky evalu (lokalni bezy)
+evals/results/
+
+# Session notes in Czech — not published
+docs/
+
+# Local integration overrides
+docker-compose.override.yml
+docker-compose.local.yml
