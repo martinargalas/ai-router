@@ -15,7 +15,7 @@ clients/continue-config.local.yaml
 evals/results/
 
 # Session notes in Czech — not published
-docs/
+docs/ZADANI.md
 
 # Local integration overrides
 docker-compose.override.yml
