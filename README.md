@@ -73,6 +73,48 @@ You need three things:
 Ports 3000, 4000, 8080 and 9090 must be free. Nothing is exposed outside your
 machine.
 
+### Which local model
+
+The default everywhere is `qwen2.5-coder:7b`. It is 4.7 GB on disk and takes
+about 8.3 GB of memory once loaded.
+
+**One important quirk: Ollama tends to keep only one model in memory at a time.**
+Loading a second one evicts the first, and reloading costs about two seconds —
+which is fatal for tab completion. So this project points every local alias at
+the *same* model rather than using a small one for completion and a larger one
+for chat.
+
+| Your RAM | Model | Notes |
+|---|---|---|
+| 16 GB | `qwen2.5-coder:3b` | 1.9 GB on disk. Faster, noticeably weaker at sorting requests. |
+| 32 GB | `qwen2.5-coder:7b` | The measured configuration. Recommended. |
+| 64 GB+ | `qwen2.5-coder:14b` | Should sort better still; not measured here. |
+
+Measured on the reference machine — a Mac mini M4 with 32 GB, both models
+quantised Q4_K_M with a 32k context:
+
+| | Time to first token | Speed | Sorting accuracy |
+|---|---|---|---|
+| `qwen2.5-coder:3b` | 80–133 ms | 45 tok/s | 70 % overall, 93.3 % local-vs-paid |
+| `qwen2.5-coder:7b` | 159–169 ms | 21 tok/s | 90 % overall, 96.7 % local-vs-paid |
+
+The 3B model is twice as fast and still gets the expensive decision right 93 %
+of the time, so it is a reasonable choice if memory is tight. What it loses is
+the top end: it almost never recognises a genuinely hard question, so the most
+capable model effectively never gets used.
+
+To change model, edit `config/litellm-config.yaml` and restart:
+`docker compose --env-file .env restart ai-router-litellm`.
+
+### Ollama settings that matter
+
+Ollama's defaults will hurt. Set these before starting it:
+
+```bash
+OLLAMA_KEEP_ALIVE=24h        # default is 5 minutes, after which every request reloads the model
+OLLAMA_FLASH_ATTENTION=1
+```
+
 ---
 
 ## Setup
@@ -81,7 +123,7 @@ machine.
 
 ```bash
 git clone https://github.com/martinargalas/ai-router && cd ai-router
-ollama pull qwen2.5-coder:7b
+ollama pull qwen2.5-coder:7b     # or the model for your RAM, see above
 ```
 
 **2. Create your settings file**
