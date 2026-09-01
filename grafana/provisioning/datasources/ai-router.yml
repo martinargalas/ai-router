@@ -1,0 +1,26 @@
+# Datasources for the bundled Grafana. Provisioned at startup.
+apiVersion: 1
+
+datasources:
+  - name: ai-router Prometheus
+    uid: ai-router-prom
+    type: prometheus
+    access: proxy
+    url: http://ai-router-prometheus:9090
+    isDefault: true
+
+  # Audit views and eval results. Read-only role — see sql/grafana-readonly-user.sql.
+  # Requires GRAFANA_RO_PASSWORD in .env; without it this datasource stays broken
+  # and only the Prometheus dashboard works.
+  - name: ai-router Postgres
+    uid: ai-router-pg
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: ai-router-db:5432
+    database: litellm
+    user: grafana_ro
+    jsonData:
+      sslmode: disable
+      postgresVersion: 1600
+    secureJsonData:
+      password: ${GRAFANA_RO_PASSWORD}

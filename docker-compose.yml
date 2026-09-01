@@ -112,6 +112,70 @@ services:
       - default
       - monitoring
 
+
+  # ---------------------------------------------------------------------------
+  # Optional observability. Not started by default.
+  #
+  #   docker compose --profile observability up -d
+  #
+  # Skip this if you already run Prometheus and Grafana — use
+  # prometheus/ai-router-scrape-job.yml and ai-router-rules.yml with your own
+  # instance instead, and import the dashboards from grafana/ manually.
+  # ---------------------------------------------------------------------------
+  ai-router-prometheus:
+    image: prom/prometheus:latest
+    container_name: ai-router-prometheus
+    restart: unless-stopped
+    profiles: ["observability"]
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--web.enable-lifecycle"
+    volumes:
+      - type: bind
+        source: ${AI_ROUTER_DIR:?set AI_ROUTER_DIR}/prometheus/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        read_only: true
+      - type: bind
+        source: ${AI_ROUTER_DIR:?set AI_ROUTER_DIR}/prometheus/ai-router-rules.yml
+        target: /etc/prometheus/ai-router-rules.yml
+        read_only: true
+      - ai-router-prometheus-data:/prometheus
+    ports:
+      - "127.0.0.1:9090:9090"
+    networks:
+      - default
+      - monitoring
+
+  ai-router-grafana:
+    image: grafana/grafana-oss:latest
+    container_name: ai-router-grafana
+    restart: unless-stopped
+    profiles: ["observability"]
+    depends_on:
+      - ai-router-prometheus
+    environment:
+      # Change this. Grafana is bound to localhost only, but still.
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      # Consumed by the provisioned Postgres datasource.
+      GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD:-}
+    volumes:
+      - type: bind
+        source: ${AI_ROUTER_DIR:?set AI_ROUTER_DIR}/grafana/provisioning
+        target: /etc/grafana/provisioning
+        read_only: true
+      - type: bind
+        source: ${AI_ROUTER_DIR:?set AI_ROUTER_DIR}/grafana/provisioned
+        target: /etc/grafana/dashboards
+        read_only: true
+      - ai-router-grafana-data:/var/lib/grafana
+    ports:
+      - "127.0.0.1:3000:3000"
+    networks:
+      - default
+      - monitoring
+
   ai-router-litellm:
     image: ghcr.io/berriai/litellm:main-stable
     container_name: ai-router-litellm
@@ -178,6 +242,10 @@ volumes:
     name: ai-router-db-data
   ai-router-ntfy-cache:
     name: ai-router-ntfy-cache
+  ai-router-prometheus-data:
+    name: ai-router-prometheus-data
+  ai-router-grafana-data:
+    name: ai-router-grafana-data
   ai-router-alertmanager-data:
     name: ai-router-alertmanager-data
 

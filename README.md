@@ -70,8 +70,10 @@ access to Metal or CUDA and inference falls back to CPU.
 - Docker with Compose
 - [Ollama](https://ollama.com) on the host, reachable from containers
 - An Anthropic API key (optional — everything works local-only without one)
-- Optional: an existing Traefik, Prometheus and Grafana; the stack integrates
-  with them but does not require them
+
+Nothing else. The stack creates its own networks and can bring its own
+Prometheus and Grafana. If you already run those, see
+[Integrating with existing infrastructure](#integrating-with-existing-infrastructure).
 
 ---
 
@@ -116,12 +118,56 @@ curl -s localhost:4000/key/generate \
        "max_budget":10,"budget_duration":"30d","rpm_limit":120}'
 ```
 
-Then apply the SQL objects (audit views, eval tables, read-only Grafana role):
+Then apply the SQL objects (audit views, eval tables):
 
 ```bash
 for f in sql/egress-audit-view.sql sql/blocked-audit-view.sql sql/eval-tables.sql; do
   docker exec -i ai-router-db psql -U litellm -d litellm < "$f"
 done
+```
+
+### With bundled observability
+
+To get Prometheus, Grafana, alert rules and all three dashboards preconfigured:
+
+```bash
+# read-only role the Grafana datasource uses
+PW=$(openssl rand -base64 18 | tr -d '/+=' | head -c 24)
+docker exec -i ai-router-db psql -U litellm -d litellm -v pw="$PW" -f - < sql/grafana-readonly-user.sql
+echo "GRAFANA_RO_PASSWORD=$PW" >> .env
+
+docker compose --env-file .env --profile observability up -d
+```
+
+Grafana lands on <http://localhost:3000> (admin password from
+`GRAFANA_ADMIN_PASSWORD`, default `admin` — change it), Prometheus on
+<http://localhost:9090>. Both bind to localhost only. Dashboards appear in the
+`ai-router` folder; datasources and alert rules are provisioned automatically.
+
+Verified end to end: Prometheus scrapes the gateway, 10 alert rules load, and
+both datasources report healthy.
+
+### Integrating with existing infrastructure
+
+If you already run Traefik, Prometheus or Grafana, skip the profile and join
+your own networks instead:
+
+```bash
+cp docker-compose.override.example.yml docker-compose.override.yml
+# edit the network names, then
+docker compose --env-file .env up -d
+```
+
+Compose loads `docker-compose.override.yml` automatically; it is gitignored.
+Add the scrape job and alert rules to your own Prometheus — see the headers of
+`prometheus/ai-router-scrape-job.yml` and `prometheus/ai-router-rules.yml` — and
+import the dashboards from `grafana/` (the `provisioned/` copies are for the
+bundled instance and have datasource UIDs baked in).
+
+Note: Portainer does not read override files. Paste the merged output instead:
+
+```bash
+docker compose --env-file .env config > merged.yml   # contains secrets, do not commit
 ```
 
 ---
@@ -176,18 +222,12 @@ sh tests/test-guardrails.sh        # guardrail regression suite (free, ~1 s)
 sh evals/run-classifier-eval.sh    # classifier accuracy (free, local)
 ```
 
-Grafana dashboards are in `grafana/`. The two Postgres-backed ones need a
-read-only datasource:
+Grafana dashboards live in `grafana/`. Two of them read Postgres and need the
+`grafana_ro` role from `sql/grafana-readonly-user.sql`.
 
-```bash
-PW=$(openssl rand -base64 18 | tr -d '/+=' | head -c 24)
-docker exec -i ai-router-db psql -U litellm -d litellm -v pw="$PW" -f - < sql/grafana-readonly-user.sql
-echo "GRAFANA_RO_PASSWORD=$PW" >> .env
-```
-
-Prometheus is not modified automatically. Add the scrape job and alert rules
-yourself — see the headers of `prometheus/ai-router-scrape-job.yml` and
-`prometheus/ai-router-rules.yml`.
+With the bundled profile, Prometheus and Grafana are configured for you. With
+your own instances, add the scrape job and alert rules yourself — see the file
+headers in `prometheus/`.
 
 ---
 

@@ -1,0 +1,242 @@
+{
+  "title": "ai-router — Governance & Audit",
+  "uid": "ai-router-audit",
+  "tags": [
+    "ai-router",
+    "governance",
+    "audit"
+  ],
+  "timezone": "browser",
+  "schemaVersion": 39,
+  "version": 1,
+  "refresh": "1m",
+  "time": {
+    "from": "now-24h",
+    "to": "now"
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "Rejections by reason",
+      "type": "piechart",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ai-router-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ai-router-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT CASE reason\n    WHEN 'guardrail'      THEN 'guardrail'\n    WHEN 'budget'       THEN 'budget'\n    WHEN 'rate limit'     THEN 'rate limit'\n    WHEN 'model not allowed' THEN 'model not allowed'\n    ELSE 'other' END AS \"Reason\", count(*) AS \"Count\"\nFROM ai_router_blocked_audit\nWHERE ts BETWEEN $__timeFrom() AND $__timeTo()\nGROUP BY 1 ORDER BY 2 DESC",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "title": "Secret detections by pattern",
+      "type": "barchart",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ai-router-pg"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ai-router-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT pattern AS \"Pattern\", count(*) AS \"Detections\"\nFROM ai_router_blocked_audit\nWHERE ts BETWEEN $__timeFrom() AND $__timeTo() AND reason='guardrail' AND pattern IS NOT NULL\nGROUP BY 1 ORDER BY 2 DESC",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 3,
+      "title": "Rejections over time",
+      "type": "timeseries",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ai-router-pg"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 0,
+        "w": 8,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ai-router-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT $__timeGroupAlias(ts,'5m'), CASE reason\n    WHEN 'guardrail'      THEN 'guardrail'\n    WHEN 'budget'       THEN 'budget'\n    WHEN 'rate limit'     THEN 'rate limit'\n    WHEN 'model not allowed' THEN 'model not allowed'\n    ELSE 'other' END AS metric, count(*) AS \"count\"\nFROM ai_router_blocked_audit\nWHERE $__timeFilter(ts)\nGROUP BY 1,2 ORDER BY 1",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 4,
+      "title": "Recent rejections",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ai-router-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 8,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ai-router-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ts AS \"Time\", key_alias AS \"Key\", user_name AS \"User\",\n       CASE reason\n    WHEN 'guardrail'      THEN 'guardrail'\n    WHEN 'budget'       THEN 'budget'\n    WHEN 'rate limit'     THEN 'rate limit'\n    WHEN 'model not allowed' THEN 'model not allowed'\n    ELSE 'other' END AS \"Reason\", COALESCE(pattern,'-') AS \"Pattern\",\n       COALESCE(stage,'-') AS \"Stage\", code AS \"Code\", COALESCE(source_ip,'-') AS \"Source IP\"\nFROM ai_router_blocked_audit\nWHERE ts BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY ts DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 5,
+      "title": "Egress: spend by key",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ai-router-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ai-router-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT key_alias AS \"Key\", user_name AS \"User\", count(*) AS \"Calls\",\n       sum(total_tokens) AS \"Tokens\", round(sum(cost_usd),6) AS \"USD\"\nFROM ai_router_egress_audit\nWHERE ts BETWEEN $__timeFrom() AND $__timeTo()\nGROUP BY 1,2 ORDER BY 5 DESC NULLS LAST",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 6,
+      "title": "Egress: by model",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ai-router-pg"
+      },
+      "gridPos": {
+        "x": 12,
+        "y": 17,
+        "w": 12,
+        "h": 8
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ai-router-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT served_by AS \"Model\", count(*) AS \"Calls\",\n       sum(total_tokens) AS \"Tokens\", round(sum(cost_usd),6) AS \"USD\"\nFROM ai_router_egress_audit\nWHERE ts BETWEEN $__timeFrom() AND $__timeTo()\nGROUP BY 1 ORDER BY 4 DESC NULLS LAST",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    },
+    {
+      "id": 7,
+      "title": "Router decisions — requested vs served",
+      "type": "table",
+      "datasource": {
+        "type": "grafana-postgresql-datasource",
+        "uid": "ai-router-pg"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 25,
+        "w": 24,
+        "h": 9
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "grafana-postgresql-datasource",
+            "uid": "ai-router-pg"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT ts AS \"Time\", key_alias AS \"Key\",\n       COALESCE(requested_alias,'-') AS \"Requested\",\n       COALESCE(router_chose,'-')    AS \"Router chose\",\n       COALESCE(tier,'-')             AS \"Tier\",\n       served_by                 AS \"Served by\",\n       CASE\n         WHEN router_chose IS NULL THEN '-'\n         WHEN router_chose='frontier'      AND served_by LIKE '%opus%'   THEN 'ok'\n         WHEN router_chose='frontier-mid'  AND served_by LIKE '%sonnet%' THEN 'ok'\n         WHEN router_chose='frontier-fast' AND served_by LIKE '%haiku%'  THEN 'ok'\n         WHEN router_chose='fast-local'    AND served_by LIKE '%qwen%'   THEN 'ok'\n         ELSE 'MISMATCH'\n       END AS \"Match\",\n       cost_usd AS \"USD\"\nFROM ai_router_egress_audit\nWHERE ts BETWEEN $__timeFrom() AND $__timeTo()\nORDER BY ts DESC LIMIT 100",
+          "refId": "A"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {},
+        "overrides": []
+      }
+    }
+  ],
+  "templating": {
+    "list": []
+  },
+  "annotations": {
+    "list": []
+  }
+}
