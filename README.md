@@ -66,10 +66,6 @@ Grafana on <http://localhost:3000> (`admin` / `GRAFANA_ADMIN_PASSWORD`), three
 dashboards already loaded: spend and latency, an audit of everything that left
 the network, and classifier quality.
 
-Already running your own Prometheus and Grafana? Delete those two services from
-`docker-compose.yml`, point your instance at the gateway using the files in
-`prometheus/`, and import the dashboards from `grafana/`.
-
 ---
 
 ## Point your editor at it
