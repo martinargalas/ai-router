@@ -48,7 +48,9 @@ curl -s localhost:4000/key/generate \
        "max_budget":10,"budget_duration":"30d","rpm_limit":120}'
 ```
 
-That key goes in your editor. `LITELLM_MASTER_KEY` never does — it is full admin.
+The response contains a `key` field starting with `sk-`. That is what goes in
+your editor. Do not use `LITELLM_MASTER_KEY` — it is full admin over the
+gateway and can read and delete everyone else's keys.
 
 ### Dashboards
 
