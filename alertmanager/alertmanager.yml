@@ -51,20 +51,12 @@ receivers:
     webhook_configs:
       - url: http://ai-router-ntfy/ai-router-budget
         send_resolved: false
-    discord_configs:
-      - webhook_url_file: /etc/alertmanager/secrets/discord-webhook-url
-        send_resolved: false
-        title: >-
-          {{ if eq .Status "firing" }}{{ if eq .CommonLabels.severity "critical" }}🔴{{ else }}🟠{{ end }}{{ else }}✅{{ end }}
-          ai-router — {{ .CommonLabels.alertname }}{{ if gt (len .Alerts) 1 }} ({{ len .Alerts }}×){{ end }}
-        message: >-
-          {{ range .Alerts -}}
-          **{{ .Annotations.summary }}**
-          {{ if .Annotations.description }}{{ .Annotations.description }}
-          {{ end }}
-          {{ if .Labels.api_key_alias }}Key: `{{ .Labels.api_key_alias }}`  ·  {{ end }}Severity: `{{ .Labels.severity }}`
-          {{ if eq .Status "resolved" }}Resolved at {{ .EndsAt.Format "15:04:05" }}{{ else }}Since {{ .StartsAt.Format "15:04:05" }}{{ end }}
-          {{ end }}
+    # Discord is optional. To enable it, put the webhook URL in a file, mount it
+    # into this container, and uncomment:
+    #
+    # discord_configs:
+    #   - webhook_url_file: /etc/alertmanager/secrets/discord-webhook-url
+    #     send_resolved: true
 
 inhibit_rules:
   # When a budget is fully exhausted, do not also send the 80 % warning.

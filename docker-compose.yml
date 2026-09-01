@@ -1,11 +1,8 @@
 # ai-router — self-hosted AI gateway for a development team
 #
-# Deploy with plain compose:
 #     docker compose --env-file .env up -d
-# or paste into Portainer: Stacks -> Add stack -> Web editor, name "ai-router".
 #
-# Secrets come from .env (or Portainer's Environment variables). Never put them
-# in this file — it is meant to be committed.
+# Secrets come from .env. Never put them in this file — it is committed.
 
 services:
   ai-router-db:
@@ -24,62 +21,42 @@ services:
       timeout: 5s
       retries: 10
       start_period: 30s
-    networks:
-      - default
-      # monitoring: lets Grafana reach the audit views. Access is limited to the
-      # read-only grafana_ro role, which can see two views and nothing else.
-      # Remove this network if you do not run Grafana on monitoring_default.
-      - monitoring
 
   ai-router-redis:
     image: redis:7-alpine
     container_name: ai-router-redis
     restart: unless-stopped
     command: ["redis-server", "--requirepass", "${REDIS_PASSWORD:?set REDIS_PASSWORD}", "--maxmemory", "256mb", "--maxmemory-policy", "allkeys-lru", "--save", ""]
+    environment:
+      REDIS_PASSWORD: ${REDIS_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "redis-cli -a \"$$REDIS_PASSWORD\" ping | grep -q PONG"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 10s
-    environment:
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-    networks:
-      - default
 
+  # Push notifications for budget and outage alerts.
+  # Subscribe to the "ai-router-budget" topic in the ntfy app.
   ai-router-ntfy:
     image: binwiederhier/ntfy:latest
     container_name: ai-router-ntfy
     restart: unless-stopped
     command: ["serve"]
     environment:
-      NTFY_BASE_URL: https://ntfy.lab
-      NTFY_BEHIND_PROXY: "true"
+      NTFY_BASE_URL: http://localhost:8080
       NTFY_CACHE_FILE: /var/cache/ntfy/cache.db
       NTFY_ATTACHMENT_CACHE_DIR: /var/cache/ntfy/attachments
     volumes:
       - ai-router-ntfy-cache:/var/cache/ntfy
+    ports:
+      - "127.0.0.1:8080:80"
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost/v1/health | grep -q '\"healthy\":true'"]
       interval: 30s
       timeout: 5s
       retries: 5
       start_period: 15s
-    labels:
-      traefik.enable: "true"
-      traefik.docker.network: "traefik-net"
-      traefik.http.routers.ai-router-ntfy.entrypoints: "web"
-      traefik.http.routers.ai-router-ntfy.rule: "Host(`ntfy.lab`)"
-      # HTTPS: the browser Notifications API only works over HTTPS, otherwise the
-      # ntfy web UI reports "Notifications not supported". The mobile app does
-      # not need HTTPS.
-      traefik.http.routers.ai-router-ntfy-tls.entrypoints: "websecure"
-      traefik.http.routers.ai-router-ntfy-tls.rule: "Host(`ntfy.lab`)"
-      traefik.http.routers.ai-router-ntfy-tls.tls: "true"
-      traefik.http.services.ai-router-ntfy.loadbalancer.server.port: "80"
-    networks:
-      - default
-      - traefik-net
 
   ai-router-alertmanager:
     image: prom/alertmanager:latest
@@ -93,12 +70,6 @@ services:
         source: ${AI_ROUTER_DIR:?set AI_ROUTER_DIR}/alertmanager/alertmanager.yml
         target: /etc/alertmanager/alertmanager.yml
         read_only: true
-      # Optional: only needed for the Discord receiver. The directory is
-      # gitignored and ships empty — see secrets/README.md.
-      - type: bind
-        source: ${AI_ROUTER_DIR:?set AI_ROUTER_DIR}/secrets
-        target: /etc/alertmanager/secrets
-        read_only: true
       - ai-router-alertmanager-data:/alertmanager
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://localhost:9093/-/healthy >/dev/null || exit 1"]
@@ -106,27 +77,16 @@ services:
       timeout: 5s
       retries: 5
       start_period: 15s
-    networks:
-      # monitoring_default: so your Prometheus can scrape and alert into it
-      # default: so it can reach ntfy
-      - default
-      - monitoring
 
-
-  # ---------------------------------------------------------------------------
-  # Optional observability. Not started by default.
+  # Prometheus and Grafana come preconfigured: scrape job, alert rules,
+  # datasources and all three dashboards load on startup.
   #
-  #   docker compose --profile observability up -d
-  #
-  # Skip this if you already run Prometheus and Grafana — use
-  # prometheus/ai-router-scrape-job.yml and ai-router-rules.yml with your own
-  # instance instead, and import the dashboards from grafana/ manually.
-  # ---------------------------------------------------------------------------
+  # Already running your own? Delete these two services and point your instance
+  # at the gateway instead — see the headers of the files in prometheus/.
   ai-router-prometheus:
     image: prom/prometheus:latest
     container_name: ai-router-prometheus
     restart: unless-stopped
-    profiles: ["observability"]
     command:
       - "--config.file=/etc/prometheus/prometheus.yml"
       - "--storage.tsdb.path=/prometheus"
@@ -143,22 +103,20 @@ services:
       - ai-router-prometheus-data:/prometheus
     ports:
       - "127.0.0.1:9090:9090"
-    networks:
-      - default
-      - monitoring
 
   ai-router-grafana:
     image: grafana/grafana-oss:latest
     container_name: ai-router-grafana
     restart: unless-stopped
-    profiles: ["observability"]
     depends_on:
       - ai-router-prometheus
     environment:
       # Change this. Grafana is bound to localhost only, but still.
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
       GF_USERS_ALLOW_SIGN_UP: "false"
-      # Consumed by the provisioned Postgres datasource.
+      # Used by the provisioned Postgres datasource. Create the role with
+      # sql/grafana-readonly-user.sql; without it only the Prometheus
+      # dashboard works.
       GRAFANA_RO_PASSWORD: ${GRAFANA_RO_PASSWORD:-}
     volumes:
       - type: bind
@@ -172,9 +130,6 @@ services:
       - ai-router-grafana-data:/var/lib/grafana
     ports:
       - "127.0.0.1:3000:3000"
-    networks:
-      - default
-      - monitoring
 
   ai-router-litellm:
     image: ghcr.io/berriai/litellm:main-stable
@@ -200,12 +155,9 @@ services:
       REDIS_HOST: ai-router-redis
       REDIS_PORT: "6379"
       REDIS_PASSWORD: ${REDIS_PASSWORD}
-      # Budget alert target. LiteLLM POSTs JSON here when a budget is crossed.
-      # ntfy uses the request body as the notification text.
-      #
-      # NOTE: LiteLLM's built-in budget alerts did not fire in the version tested
-      # (1.98.0) — budget_alerts() is defined but never called. Alerting is done
-      # through Prometheus + Alertmanager instead. This stays wired for the day
+      # NOTE: LiteLLM's built-in budget alerts did not fire in the version
+      # tested (1.98.0) — budget_alerts() is defined but never called. Real
+      # alerting goes through Prometheus + Alertmanager. Left wired for the day
       # upstream fixes it.
       WEBHOOK_URL: http://ai-router-ntfy/ai-router-budget
     volumes:
@@ -214,9 +166,8 @@ services:
         target: /app/config.yaml
         read_only: true
     ports:
-      # Bound to localhost only. Normal access goes through Traefik (llm.lab).
-      # This is what makes it safe to serve /metrics without auth: the endpoint
-      # is reachable from Docker networks and this host, not from the LAN.
+      # Bound to localhost only. That is what makes it safe to serve /metrics
+      # without auth — reachable from Docker networks and this host, not the LAN.
       - "127.0.0.1:4000:4000"
     extra_hosts:
       - "host.docker.internal:host-gateway"
@@ -226,38 +177,19 @@ services:
       timeout: 10s
       retries: 5
       start_period: 60s
-    labels:
-      traefik.enable: "true"
-      traefik.docker.network: "traefik-net"
-      traefik.http.routers.ai-router.entrypoints: "web"
-      traefik.http.routers.ai-router.rule: "Host(`llm.lab`)"
-      traefik.http.services.ai-router.loadbalancer.server.port: "4000"
-    networks:
-      - default
-      - traefik-net
-      - monitoring
 
 volumes:
   ai-router-db-data:
     name: ai-router-db-data
   ai-router-ntfy-cache:
     name: ai-router-ntfy-cache
+  ai-router-alertmanager-data:
+    name: ai-router-alertmanager-data
   ai-router-prometheus-data:
     name: ai-router-prometheus-data
   ai-router-grafana-data:
     name: ai-router-grafana-data
-  ai-router-alertmanager-data:
-    name: ai-router-alertmanager-data
 
 networks:
   default:
     name: ai-router-net
-
-  # These are the stack's own networks by default, so a fresh clone starts with
-  # no prerequisites. If you already run Traefik and Prometheus elsewhere, join
-  # their networks instead with docker-compose.override.yml — see
-  # docker-compose.override.example.yml.
-  traefik-net:
-    name: ai-router-traefik
-  monitoring:
-    name: ai-router-monitoring
